@@ -1,0 +1,78 @@
+# 二重振り子 倒立タスク — rl_games PPO 設定
+# ネットワーク構造、学習パラメータを定義
+
+params:
+  seed: 42
+
+  # 環境ラッパーの設定
+  env:
+    clip_observations: 10.0    # 観測値のクリッピング範囲
+    clip_actions: 1.0          # アクションのクリッピング範囲
+
+  algo:
+    name: a2c_continuous       # PPO (continuous action space)
+
+  model:
+    name: continuous_a2c_logstd
+
+  # ニューラルネットワーク設定
+  network:
+    name: actor_critic
+    separate: False            # Actor/Critic でネットワーク共有
+    space:
+      continuous:
+        mu_activation: None
+        sigma_activation: softplus
+        mu_init:
+          name: default
+        sigma_init:
+          name: const_initializer
+          val: -0.5
+        fixed_sigma: True
+    mlp:
+      # 二重振り子は非線形ダイナミクスが強いのでやや大きめのネットワーク
+      units: [256, 128, 64]
+      activation: elu
+      d2rl: False
+      initializer:
+        name: default
+      regularizer:
+        name: None
+
+  load_checkpoint: False
+  load_path: ''
+
+  config:
+    name: double_pendulum_direct
+    env_name: rlgpu
+    device: 'cuda:0'
+    device_name: 'cuda:0'
+    multi_gpu: False
+    ppo: True
+    mixed_precision: False
+    normalize_input: True      # 入力正規化
+    normalize_value: True      # 価値関数の正規化
+    num_actors: -1             # スクリプトから自動設定
+    reward_shaper:
+      scale_value: 1.0        # 報酬スケーリング
+    normalize_advantage: True
+    gamma: 0.99                # 割引率
+    tau: 0.95                  # GAEのλ
+    learning_rate: 3e-4        # 学習率
+    lr_schedule: adaptive      # KLベースの適応学習率
+    kl_threshold: 0.008
+    score_to_win: 100000
+    max_epochs: 500            # 最大エポック数
+    save_best_after: 50        # ベストモデル保存開始エポック
+    save_frequency: 50         # チェックポイント保存頻度
+    grad_norm: 1.0             # 勾配クリッピング
+    entropy_coef: 0.01         # エントロピー係数（探索促進）
+    truncate_grads: True
+    e_clip: 0.2                # PPOクリッピング範囲
+    horizon_length: 64         # ロールアウト長
+    minibatch_size: 32768      # ミニバッチサイズ
+    mini_epochs: 8             # PPO更新回数
+    critic_coef: 2             # Critic損失の重み
+    clip_value: True
+    seq_length: 4
+    bounds_loss_coef: 0.0001   # アクション範囲制約
