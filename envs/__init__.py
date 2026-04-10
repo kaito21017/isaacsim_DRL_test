@@ -1,23 +1,16 @@
-"""二重振り子 Gymnasium 環境登録
+"""Gymnasium registration for the local double-pendulum RL tasks."""
 
-Isaac Lab の環境としてGymnasiumに登録し、
-gym.make("DoublePendulum-Direct-v0") で利用可能にする。
-"""
+from __future__ import annotations
 
 import gymnasium as gym
 
-from . import double_pendulum_env
-
-##
-# Gymnasium 環境登録
-##
 
 gym.register(
-    id="DoublePendulum-Direct-v0",
-    entry_point="envs.double_pendulum_env:DoublePendulumEnv",
+    id="DoublePendulum-Upright-Direct-v0",
+    entry_point="envs.double_pendulum_upright_env:DoublePendulumUprightEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": "config.double_pendulum_env_cfg:DoublePendulumEnvCfg",
-        "rl_games_cfg_entry_point": "agents:rl_games_ppo_cfg.yaml",
+        "env_cfg_entry_point": "config.double_pendulum_upright_env_cfg:DoublePendulumUprightEnvCfg",
+        "rl_games_cfg_entry_point": "agents:rl_games_upright_ppo_cfg.yaml",
     },
 )

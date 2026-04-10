@@ -1,1 +1,1 @@
-# 二重振り子 エージェント設定モジュール
+"""Agent configuration package for local training scripts."""

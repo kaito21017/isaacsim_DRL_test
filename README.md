@@ -1,195 +1,96 @@
-# 二重振り子 DRL (Isaac Sim / Isaac Lab)
+# Double Pendulum Isaac Sim Test
 
-Isaac Sim + Isaac Lab 上で、二重振り子をトルク制御しながら swing-up して真上で維持する PPO タスクです。  
-ローカル実行、学習済みポリシーの可視化、定量評価、Docker イメージ化まで一通り入っています。
+このリポジトリに含まれるURDF
 
-## 構成
+- `urdf/double_pendulum/double.urdf`
 
-```text
-isaacsim_DRL_test/
-├── agents/
-│   └── rl_games_ppo_cfg.yaml
-├── config/
-│   ├── double_pendulum_cfg.py
-│   └── double_pendulum_env_cfg.py
-├── envs/
-│   ├── __init__.py
-│   └── double_pendulum_env.py
-├── scripts/
-│   ├── common.py
-│   ├── eval.py
-│   ├── keyboard_sim.py
-│   ├── play.py
-│   └── train.py
-├── utils/
-│   └── double_pendulum.py
-├── urdf/
-│   └── double_pendulum.urdf
-└── docker/
-    ├── .env
-    ├── Dockerfile
-    ├── docker-compose.dev.yaml
-    ├── docker-compose.yaml
-    └── entrypoint.sh
-```
+を、そのまま Isaac Sim / Isaac Lab 上で読み込んで確認するための最小構成です。  
+実装方針は `/home/kaito/KainaIsaacLab` の `UrdfFileCfg + ArticulationCfg + InteractiveScene` 構成に合わせています。
 
-## 対応バージョン
+## 追加したもの
+
+- `config/double_pendulum_cfg.py`
+  - URDF の絶対パス解決
+  - 固定台座 (`fix_base=True`)
+  - `base_Revolute-1`, `link1_Revolute-2` のトルク制御設定
+- `scripts/urdf_import.py`
+  - URDF を読み込んで表示だけ行う最小スクリプト
+- `scripts/keyboard_sim.py`
+  - `Q/A`, `W/S` で2関節にトルクを与える手動シミュレーション
+
+## 前提
 
 - Isaac Sim `4.5.x`
 - Isaac Lab `v2.2.x`
-- RL ライブラリ: `rl_games`
 
-Isaac Lab の公式互換表では `v2.2.x` は Isaac Sim `4.5 / 5.0` 系対応です。
+## 実行
 
-## タスク定義
-
-- アセット: 固定台座 + 2 自由度回転関節 + 2 本リンク
-- 行動: `joint1`, `joint2` へのトルク指令 `[τ1, τ2]`
-- 観測: `[sin(q1), cos(q1), sin(q2), cos(q2), dq1, dq2]`
-- 目標: 下向き近傍から振り上げて両リンクを真上に保つ
-- 報酬: 倒立報酬 + 角度誤差ペナルティ + 角速度ペナルティ + トルクペナルティ + 生存報酬 + 成功ボーナス
-- 成功判定: 両リンクがほぼ真上、かつ角速度が十分小さい状態を一定時間以上維持
-
-## ローカル実行
-
-### 1. 手動シミュレーション
+### 1. URDF をそのまま表示
 
 ```bash
-/path/to/IsaacLab/isaaclab.sh -p scripts/keyboard_sim.py
+./isaacsim.sh -p scripts/urdf_import.py
 ```
 
-キー操作:
+別のURDFを指定したい場合:
 
-- `Q / A`: 関節1 に正 / 負トルク
-- `W / S`: 関節2 に正 / 負トルク
-- `R`: リセット
+```bash
+./isaacsim.sh -p scripts/urdf_import.py --urdf_path /absolute/path/to/file.urdf
+```
+
+### 2. キーボードで手動操作
+
+```bash
+./isaacsim.sh -p scripts/keyboard_sim.py
+```
+
+操作:
+
+- `Q / A`: `base_Revolute-1` に正 / 負トルク
+- `W / S`: `link1_Revolute-2` に正 / 負トルク
+- `R`: 初期状態へリセット
 - `ESC`: 終了
 
-### 2. 学習
+トルク値を変える場合:
 
 ```bash
-/path/to/IsaacLab/isaaclab.sh -p scripts/train.py --task DoublePendulum-Direct-v0 --headless
+./isaacsim.sh -p scripts/keyboard_sim.py --torque_magnitude 0.5
 ```
 
-よく使うオプション:
+初期角度を変えて、無入力時の振り子挙動を見る場合:
 
 ```bash
-# 並列環境数を変更
-/path/to/IsaacLab/isaaclab.sh -p scripts/train.py --headless --num_envs 2048
-
-# 途中再開
-/path/to/IsaacLab/isaaclab.sh -p scripts/train.py --headless --checkpoint logs/rl_games/double_pendulum_direct/<RUN>/nn/last_double_pendulum_direct_ep_500_rew_xx.pth
-
-# 学習動画も保存
-/path/to/IsaacLab/isaaclab.sh -p scripts/train.py --headless --video --video_length 600
+./isaacsim.sh -p scripts/keyboard_sim.py --initial_joint1 1.0 --initial_joint2 0.0
 ```
 
-### 3. 可視化再生
+## 補足
+
+- URDF 内のメッシュは `scale="0.001"` で mm から m に変換されているため、Isaac Lab 側では追加スケールをかけていません。
+- 台座はワールド固定です。二重振り子としてその場で回転運動だけを観察できます。
+
+## DRL 学習
+
+二重振り子ができるだけ真上を向くように、2関節トルクを出力する PPO ポリシーを学習します。
 
 ```bash
-/path/to/IsaacLab/isaaclab.sh -p scripts/play.py --checkpoint logs/rl_games/double_pendulum_direct/<RUN>/nn/double_pendulum_direct.pth
+./isaacsim.sh -p scripts/train_upright_policy.py --headless
 ```
 
-チェックポイントを省略して最新を使う場合:
+デフォルトでは100並列環境で学習します。GUIで複数環境を見ながら確認する場合:
 
 ```bash
-/path/to/IsaacLab/isaaclab.sh -p scripts/play.py --use_last_checkpoint
+./isaacsim.sh -p scripts/train_upright_policy.py --num_envs 100
 ```
 
-### 4. 定量評価
+ヘッドレスで速度優先にする場合:
 
 ```bash
-/path/to/IsaacLab/isaaclab.sh -p scripts/eval.py --headless --use_last_checkpoint --num_envs 64 --num_episodes 128
+./isaacsim.sh -p scripts/train_upright_policy.py --headless --clone_in_fabric
 ```
 
-出力:
-
-- 平均エピソード報酬
-- 平均倒立維持率
-- 平均最長倒立維持時間
-- 成功率
-- JSON レポート (`logs/rl_games/.../eval/<timestamp>.json`)
-
-## Docker
-
-### 1. ビルド
-
-NVIDIA NGC ベースイメージを使うので、必要なら事前に `docker login nvcr.io` を実施してください。
+軽く動作確認する場合:
 
 ```bash
-docker compose -f docker/docker-compose.yaml build
+./isaacsim.sh -p scripts/train_upright_policy.py --headless --num_envs 8 --max_iterations 1
 ```
 
-### 2. 学習
-
-```bash
-docker compose -f docker/docker-compose.yaml run --rm train
-```
-
-カスタム引数:
-
-```bash
-docker compose -f docker/docker-compose.yaml run --rm train -- --num_envs 2048 --max_iterations 1000
-```
-
-### 3. 評価
-
-```bash
-docker compose -f docker/docker-compose.yaml run --rm eval -- --num_episodes 128
-```
-
-### 4. 可視化再生
-
-ヘッドレスならそのまま、GUI を出したい場合は X11 を追加してください。
-
-```bash
-# headless replay
-docker compose -f docker/docker-compose.yaml run --rm play -- --headless
-
-# GUI replay (Linux/X11)
-xhost +local:root
-docker compose -f docker/docker-compose.yaml run --rm \
-  -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  play
-```
-
-### 5. 開発用 bind mount
-
-ソースをホスト側から差し替えたい場合は dev override を重ねます。
-
-```bash
-docker compose \
-  -f docker/docker-compose.yaml \
-  -f docker/docker-compose.dev.yaml \
-  run --rm train -- --num_envs 512
-```
-
-## イメージ配布
-
-### レジストリに push
-
-```bash
-docker tag double-pendulum-drl:latest <registry>/double-pendulum-drl:latest
-docker push <registry>/double-pendulum-drl:latest
-```
-
-### tar として配布
-
-```bash
-docker save double-pendulum-drl:latest | gzip > double-pendulum-drl.tar.gz
-```
-
-受け取り側:
-
-```bash
-gunzip -c double-pendulum-drl.tar.gz | docker load
-docker compose -f docker/docker-compose.yaml run --rm eval
-```
-
-## 実装メモ
-
-- 環境は Isaac Lab の `DirectRLEnv` パターンで実装
-- `train.py` / `play.py` は Isaac Lab 公式の `rl_games` ワークフローに沿って構成
-- `eval.py` は `rl_games` player API を用いて deterministic policy を直接評価
-- Docker は self-contained image を基準にし、開発時だけ `docker-compose.dev.yaml` で bind mount
+ログとチェックポイントは `logs/rl_games/double_pendulum_upright/` に保存されます。

@@ -1,1 +1,1 @@
-# 二重振り子アセット設定モジュール
+"""Double pendulum Isaac Lab configuration package."""
