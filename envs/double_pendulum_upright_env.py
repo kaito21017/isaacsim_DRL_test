@@ -1,8 +1,7 @@
-"""DirectRLEnv for training the local double pendulum to point upright."""
+"""DirectRLEnv for training the local double pendulum to maximize tip height."""
 
 from __future__ import annotations
 
-import math
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -23,7 +22,7 @@ from config.double_pendulum_upright_env_cfg import DoublePendulumUprightEnvCfg
 
 
 class DoublePendulumUprightEnv(DirectRLEnv):
-    """Swing up and balance the two links near the upright direction."""
+    """Swing up and balance the two-link tip near its maximum height."""
 
     cfg: DoublePendulumUprightEnvCfg
 
@@ -37,13 +36,12 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         self.joint_vel = self.robot.data.joint_vel
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self._episode_sums = {
-            "upright": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
-            "angle_error": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
-            "angular_vel": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "tip_height": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "torque": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
-            "alive": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "success_bonus": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
         }
+        self._success_hold_buf = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self._success_awarded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def _find_joint(self, name_expr: str) -> list[int]:
         joint_ids, joint_names = self.robot.find_joints(name_expr)
@@ -85,21 +83,8 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         dq2 = torch.nan_to_num(self.joint_vel[:, self._joint2_dof_idx[0]], nan=0.0, posinf=0.0, neginf=0.0)
         dq1 = torch.clamp(dq1, -self.cfg.max_joint_velocity, self.cfg.max_joint_velocity)
         dq2 = torch.clamp(dq2, -self.cfg.max_joint_velocity, self.cfg.max_joint_velocity)
-        q2_abs = q1 + q2
 
-        obs = torch.stack(
-            (
-                torch.sin(q1),
-                torch.cos(q1),
-                torch.sin(q2),
-                torch.cos(q2),
-                torch.sin(q2_abs),
-                torch.cos(q2_abs),
-                dq1,
-                dq2,
-            ),
-            dim=-1,
-        )
+        obs = torch.stack((wrap_to_pi(q1), wrap_to_pi(q2), dq1, dq2), dim=-1)
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -107,32 +92,28 @@ class DoublePendulumUprightEnv(DirectRLEnv):
 
         q1 = self.joint_pos[:, self._joint1_dof_idx[0]]
         q2 = self.joint_pos[:, self._joint2_dof_idx[0]]
-        dq1 = self.joint_vel[:, self._joint1_dof_idx[0]]
-        dq2 = self.joint_vel[:, self._joint2_dof_idx[0]]
-
         rewards = compute_rewards(
-            self.cfg.rew_scale_upright,
-            self.cfg.rew_scale_angle_error,
-            self.cfg.rew_scale_angular_vel,
+            self.cfg.rew_scale_tip_height,
             self.cfg.rew_scale_torque,
-            self.cfg.rew_scale_alive,
             self.cfg.rew_scale_success_bonus,
-            self.cfg.success_angle_threshold,
-            self.cfg.success_velocity_threshold,
+            self.cfg.link1_length,
+            self.cfg.link2_length,
+            self.cfg.success_tip_height_ratio,
+            self.cfg.success_hold_time_s,
+            self.step_dt,
             q1,
             q2,
-            dq1,
-            dq2,
             self.actions,
+            self._success_hold_buf,
+            self._success_awarded,
         )
-        total_reward, rew_upright, rew_angle_error, rew_angular_vel, rew_torque, rew_alive, rew_success_bonus = rewards
+        total_reward, rew_tip_height, rew_torque, rew_success_bonus, success_hold, success_awarded = rewards
 
-        self._episode_sums["upright"] += rew_upright
-        self._episode_sums["angle_error"] += rew_angle_error
-        self._episode_sums["angular_vel"] += rew_angular_vel
+        self._episode_sums["tip_height"] += rew_tip_height
         self._episode_sums["torque"] += rew_torque
-        self._episode_sums["alive"] += rew_alive
         self._episode_sums["success_bonus"] += rew_success_bonus
+        self._success_hold_buf = success_hold
+        self._success_awarded = success_awarded
 
         return torch.nan_to_num(total_reward, nan=-100.0, posinf=-100.0, neginf=-100.0)
 
@@ -142,8 +123,6 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         invalid_state = torch.any(torch.isnan(self.joint_pos) | torch.isnan(self.joint_vel), dim=1)
         invalid_state |= torch.any(torch.isinf(self.joint_pos) | torch.isinf(self.joint_vel), dim=1)
-        invalid_state |= torch.any(torch.abs(self.joint_vel) > self.cfg.max_joint_velocity, dim=1)
-        invalid_state |= torch.any(torch.abs(self.joint_pos) > self.cfg.max_joint_angle, dim=1)
         return invalid_state, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None):
@@ -192,6 +171,8 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         self.joint_pos[env_ids] = joint_pos
         self.joint_vel[env_ids] = joint_vel
         self.actions[env_ids] = 0.0
+        self._success_hold_buf[env_ids] = 0.0
+        self._success_awarded[env_ids] = False
 
         self.robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
@@ -204,37 +185,45 @@ def wrap_to_pi(angles: torch.Tensor) -> torch.Tensor:
 
 
 def compute_rewards(
-    rew_scale_upright: float,
-    rew_scale_angle_error: float,
-    rew_scale_angular_vel: float,
+    rew_scale_tip_height: float,
     rew_scale_torque: float,
-    rew_scale_alive: float,
     rew_scale_success_bonus: float,
-    success_angle_threshold: float,
-    success_velocity_threshold: float,
+    link1_length: float,
+    link2_length: float,
+    success_tip_height_ratio: float,
+    success_hold_time_s: float,
+    step_dt: float,
     q1: torch.Tensor,
     q2: torch.Tensor,
-    dq1: torch.Tensor,
-    dq2: torch.Tensor,
     actions: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Reward high scores when both links point upward and move slowly."""
-    link1_error = wrap_to_pi(q1 - math.pi)
-    link2_error = wrap_to_pi(q1 + q2 - math.pi)
+    success_hold: torch.Tensor,
+    success_awarded: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Reward high scores when the estimated pendulum tip is high."""
+    tip_height = compute_tip_height(q1, q2, link1_length, link2_length)
+    max_tip_height = link1_length + link2_length
+    normalized_tip_height = torch.clamp((tip_height + max_tip_height) / (2.0 * max_tip_height), 0.0, 1.0)
 
-    rew_upright = rew_scale_upright * (1.0 - 0.5 * (torch.cos(q1) + torch.cos(q1 + q2)))
-    rew_angle_error = rew_scale_angle_error * (torch.square(link1_error) + torch.square(link2_error))
-    rew_angular_vel = rew_scale_angular_vel * (torch.square(dq1) + torch.square(dq2))
-    rew_torque = rew_scale_torque * torch.sum(torch.square(actions), dim=-1)
-    rew_alive = rew_scale_alive * torch.ones_like(q1)
+    success_mask = tip_height >= max_tip_height * success_tip_height_ratio
+    success_hold = torch.where(success_mask, success_hold + step_dt, torch.zeros_like(success_hold))
+    newly_successful = (success_hold >= success_hold_time_s) & (~success_awarded)
+    success_awarded = success_awarded | newly_successful
 
-    success_mask = (
-        (torch.abs(link1_error) <= success_angle_threshold)
-        & (torch.abs(link2_error) <= success_angle_threshold)
-        & (torch.abs(dq1) <= success_velocity_threshold)
-        & (torch.abs(dq2) <= success_velocity_threshold)
-    )
-    rew_success_bonus = rew_scale_success_bonus * success_mask.float()
+    rew_tip_height = rew_scale_tip_height * normalized_tip_height
+    rew_torque = rew_scale_torque * torch.sum(torch.abs(actions), dim=-1)
+    rew_success_bonus = rew_scale_success_bonus * newly_successful.float()
 
-    total_reward = rew_upright + rew_angle_error + rew_angular_vel + rew_torque + rew_alive + rew_success_bonus
-    return total_reward, rew_upright, rew_angle_error, rew_angular_vel, rew_torque, rew_alive, rew_success_bonus
+    total_reward = rew_tip_height + rew_torque + rew_success_bonus
+    return total_reward, rew_tip_height, rew_torque, rew_success_bonus, success_hold, success_awarded
+
+
+def compute_tip_height(
+    q1: torch.Tensor,
+    q2: torch.Tensor,
+    link1_length: float,
+    link2_length: float,
+) -> torch.Tensor:
+    """Estimate tip height relative to the first joint from planar joint angles."""
+    link1_height = -link1_length * torch.cos(q1)
+    link2_height = -link2_length * torch.cos(q1 + q2)
+    return link1_height + link2_height

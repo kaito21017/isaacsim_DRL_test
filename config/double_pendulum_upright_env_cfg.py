@@ -1,4 +1,4 @@
-"""DirectRLEnv configuration for training an upright double-pendulum policy."""
+"""DirectRLEnv configuration for training a tip-height double-pendulum policy."""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ from .double_pendulum_cfg import DOUBLE_PENDULUM_CFG, JOINT1_NAME_EXPR, JOINT2_N
 
 @configclass
 class DoublePendulumUprightEnvCfg(DirectRLEnvCfg):
-    """Config for a torque-controlled upright task."""
+    """Config for a torque-controlled tip-height task."""
 
     decimation = 2
-    episode_length_s = 8.0
+    episode_length_s = 10.0
     action_space = 2
-    observation_space = 8
+    observation_space = 4
     state_space = 0
 
     sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
@@ -44,14 +44,13 @@ class DoublePendulumUprightEnvCfg(DirectRLEnvCfg):
     initial_joint2_angle_range = [-0.35, 0.35]
     initial_joint_velocity_range = [-0.1, 0.1]
 
-    success_angle_threshold = math.radians(10.0)
-    success_velocity_threshold = 0.75
+    link1_length = 0.17
+    link2_length = 0.17
+    success_tip_height_ratio = math.cos(math.radians(1.0))
+    success_hold_time_s = 5.0
     max_joint_velocity = 50.0
     max_joint_angle = 10.0 * math.pi
 
-    rew_scale_upright = 2.0
-    rew_scale_angle_error = -0.2
-    rew_scale_angular_vel = -0.01
+    rew_scale_tip_height = 4.0
     rew_scale_torque = -0.002
-    rew_scale_alive = 0.05
-    rew_scale_success_bonus = 1.0
+    rew_scale_success_bonus = 50.0
