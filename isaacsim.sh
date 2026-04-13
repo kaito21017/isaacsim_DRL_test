@@ -2,15 +2,17 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ISAACLAB_SH="/home/kaito/KainaIsaacLab/isaaclab.sh"
+ISAACLAB_PATH="${ISAACLAB_PATH:-/home/kaito/KainaIsaacLab}"
+ISAACLAB_SH="${ISAACLAB_SH:-${ISAACLAB_PATH}/isaaclab.sh}"
 
 if [[ ! -x "${ISAACLAB_SH}" ]]; then
     echo "[ERROR] Isaac Lab launcher not found: ${ISAACLAB_SH}" >&2
     exit 1
 fi
 
-if [[ -z "${VIRTUAL_ENV:-}" && -x "/home/kaito/env_isaaclab/bin/python" ]]; then
-    export VIRTUAL_ENV="/home/kaito/env_isaaclab"
+DEFAULT_VENV="${ISAACLAB_VENV:-/home/kaito/env_isaaclab}"
+if [[ -z "${VIRTUAL_ENV:-}" && -x "${DEFAULT_VENV}/bin/python" ]]; then
+    export VIRTUAL_ENV="${DEFAULT_VENV}"
     export PATH="${VIRTUAL_ENV}/bin:${PATH}"
 fi
 

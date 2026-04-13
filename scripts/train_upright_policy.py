@@ -18,11 +18,25 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of parall
 parser.add_argument("--task", type=str, default="DoublePendulum-Upright-Direct-v0", help="Gymnasium task name.")
 parser.add_argument("--seed", type=int, default=None, help="Random seed. Use -1 for random.")
 parser.add_argument("--max_iterations", type=int, default=None, help="PPO training epochs.")
+parser.add_argument("--save_frequency", type=int, default=None, help="Save a checkpoint every N PPO epochs.")
+parser.add_argument("--save_best_after", type=int, default=None, help="Start saving the best checkpoint after N PPO epochs.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint path to resume from.")
 parser.add_argument("--sigma", type=float, default=None, help="Initial policy standard deviation override.")
 parser.add_argument("--video", action="store_true", default=False, help="Record training videos.")
 parser.add_argument("--video_length", type=int, default=300, help="Training video length in env steps.")
 parser.add_argument("--video_interval", type=int, default=2000, help="Training video interval in env steps.")
+parser.add_argument("--track", action="store_true", default=False, help="Enable Weights & Biases logging.")
+parser.add_argument("--wandb_project_name", type=str, default="double_pendulum_upright", help="WandB project name.")
+parser.add_argument("--wandb_entity", type=str, default=None, help="WandB entity or team name.")
+parser.add_argument("--wandb_name", type=str, default=None, help="WandB run name. Defaults to the log directory name.")
+parser.add_argument("--wandb_group", type=str, default=None, help="WandB group name.")
+parser.add_argument("--wandb_tags", type=str, default="", help="Comma-separated WandB tags.")
+parser.add_argument(
+    "--wandb_mode",
+    choices=["online", "offline", "disabled"],
+    default="online",
+    help="WandB mode used when --track is enabled.",
+)
 parser.add_argument(
     "--clone_in_fabric",
     action="store_true",
@@ -94,6 +108,10 @@ def apply_agent_overrides(agent_cfg: dict, seed: int, checkpoint: str | None) ->
         agent_cfg["params"]["load_path"] = checkpoint
     if args_cli.max_iterations is not None:
         agent_cfg["params"]["config"]["max_epochs"] = args_cli.max_iterations
+    if args_cli.save_frequency is not None:
+        agent_cfg["params"]["config"]["save_frequency"] = args_cli.save_frequency
+    if args_cli.save_best_after is not None:
+        agent_cfg["params"]["config"]["save_best_after"] = args_cli.save_best_after
 
 
 def tune_ppo_batch_config(agent_cfg: dict, num_envs: int) -> None:
@@ -154,6 +172,43 @@ def create_rl_games_env(task: str, env_cfg, agent_cfg: dict, log_root_path: Path
     return wrapped_env
 
 
+def maybe_start_wandb(log_root_path: Path, log_dir: str, env_cfg, agent_cfg: dict):
+    if not args_cli.track or args_cli.wandb_mode == "disabled":
+        return None
+
+    try:
+        import wandb
+    except ImportError as exc:
+        raise RuntimeError("WandB logging requires `wandb`. Install it with `pip install wandb`.") from exc
+
+    tags = [tag.strip() for tag in args_cli.wandb_tags.split(",") if tag.strip()]
+    tags.extend(["isaaclab", "rl_games", "ppo", f"envs_{env_cfg.scene.num_envs}"])
+    run_dir = log_root_path / log_dir
+    run = wandb.init(
+        project=args_cli.wandb_project_name,
+        entity=args_cli.wandb_entity,
+        name=args_cli.wandb_name or log_dir,
+        group=args_cli.wandb_group,
+        tags=tags,
+        mode=args_cli.wandb_mode,
+        dir=str(run_dir),
+        sync_tensorboard=True,
+        config={
+            "task": args_cli.task,
+            "seed": env_cfg.seed,
+            "num_envs": env_cfg.scene.num_envs,
+            "episode_length_s": env_cfg.episode_length_s,
+            "action_scale": env_cfg.action_scale,
+            "save_frequency": agent_cfg["params"]["config"]["save_frequency"],
+            "max_epochs": agent_cfg["params"]["config"]["max_epochs"],
+            "horizon_length": agent_cfg["params"]["config"]["horizon_length"],
+            "minibatch_size": agent_cfg["params"]["config"]["minibatch_size"],
+        },
+    )
+    wandb.save(str(run_dir / "params" / "*.yaml"), base_path=str(run_dir), policy="now")
+    return run
+
+
 def main() -> None:
     agent_cfg = load_agent_cfg()
     seed = resolve_seed(args_cli.seed, agent_cfg["params"]["seed"])
@@ -169,20 +224,28 @@ def main() -> None:
     print(f"[INFO] num_envs={env_cfg.scene.num_envs}")
     print(f"[INFO] log_dir={(log_root_path / log_dir).resolve()}")
     print(f"[INFO] minibatch_size={agent_cfg['params']['config']['minibatch_size']}")
+    print(f"[INFO] save_frequency={agent_cfg['params']['config']['save_frequency']}")
+    if args_cli.track:
+        print(f"[INFO] wandb_project={args_cli.wandb_project_name}")
 
+    wandb_run = maybe_start_wandb(log_root_path, log_dir, env_cfg, agent_cfg)
     env = create_rl_games_env(args_cli.task, env_cfg, agent_cfg, log_root_path, log_dir)
     agent_cfg["params"]["config"]["num_actors"] = env.unwrapped.num_envs
 
-    runner = Runner(IsaacAlgoObserver())
-    runner.load(agent_cfg)
-    runner.reset()
+    try:
+        runner = Runner(IsaacAlgoObserver())
+        runner.load(agent_cfg)
+        runner.reset()
 
-    run_args = {"train": True, "play": False, "sigma": args_cli.sigma}
-    if checkpoint is not None:
-        run_args["checkpoint"] = checkpoint
-        print(f"[INFO] resume checkpoint={checkpoint}")
-    runner.run(run_args)
-    env.close()
+        run_args = {"train": True, "play": False, "sigma": args_cli.sigma}
+        if checkpoint is not None:
+            run_args["checkpoint"] = checkpoint
+            print(f"[INFO] resume checkpoint={checkpoint}")
+        runner.run(run_args)
+    finally:
+        env.close()
+        if wandb_run is not None:
+            wandb_run.finish()
 
 
 if __name__ == "__main__":

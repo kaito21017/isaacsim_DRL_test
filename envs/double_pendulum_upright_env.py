@@ -35,9 +35,14 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
+        self._previous_actions = torch.zeros_like(self.actions)
         self._episode_sums = {
             "tip_height": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "settle": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "angular_velocity": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "tip_velocity": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "torque": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
+            "action_rate": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
             "success_bonus": torch.zeros(self.num_envs, dtype=torch.float, device=self.device),
         }
         self._success_hold_buf = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -92,26 +97,52 @@ class DoublePendulumUprightEnv(DirectRLEnv):
 
         q1 = self.joint_pos[:, self._joint1_dof_idx[0]]
         q2 = self.joint_pos[:, self._joint2_dof_idx[0]]
+        dq1 = self.joint_vel[:, self._joint1_dof_idx[0]]
+        dq2 = self.joint_vel[:, self._joint2_dof_idx[0]]
         rewards = compute_rewards(
             self.cfg.rew_scale_tip_height,
+            self.cfg.rew_scale_settle,
+            self.cfg.rew_scale_angular_velocity,
+            self.cfg.rew_scale_tip_velocity,
             self.cfg.rew_scale_torque,
+            self.cfg.rew_scale_action_rate,
             self.cfg.rew_scale_success_bonus,
             self.cfg.link1_length,
             self.cfg.link2_length,
             self.cfg.success_tip_height_ratio,
+            self.cfg.success_velocity_threshold,
             self.cfg.success_hold_time_s,
             self.step_dt,
             q1,
             q2,
+            dq1,
+            dq2,
             self.actions,
+            self._previous_actions,
             self._success_hold_buf,
             self._success_awarded,
         )
-        total_reward, rew_tip_height, rew_torque, rew_success_bonus, success_hold, success_awarded = rewards
+        (
+            total_reward,
+            rew_tip_height,
+            rew_settle,
+            rew_angular_velocity,
+            rew_tip_velocity,
+            rew_torque,
+            rew_action_rate,
+            rew_success_bonus,
+            success_hold,
+            success_awarded,
+        ) = rewards
 
         self._episode_sums["tip_height"] += rew_tip_height
+        self._episode_sums["settle"] += rew_settle
+        self._episode_sums["angular_velocity"] += rew_angular_velocity
+        self._episode_sums["tip_velocity"] += rew_tip_velocity
         self._episode_sums["torque"] += rew_torque
+        self._episode_sums["action_rate"] += rew_action_rate
         self._episode_sums["success_bonus"] += rew_success_bonus
+        self._previous_actions = self.actions.clone()
         self._success_hold_buf = success_hold
         self._success_awarded = success_awarded
 
@@ -171,6 +202,7 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         self.joint_pos[env_ids] = joint_pos
         self.joint_vel[env_ids] = joint_vel
         self.actions[env_ids] = 0.0
+        self._previous_actions[env_ids] = 0.0
         self._success_hold_buf[env_ids] = 0.0
         self._success_awarded[env_ids] = False
 
@@ -186,35 +218,72 @@ def wrap_to_pi(angles: torch.Tensor) -> torch.Tensor:
 
 def compute_rewards(
     rew_scale_tip_height: float,
+    rew_scale_settle: float,
+    rew_scale_angular_velocity: float,
+    rew_scale_tip_velocity: float,
     rew_scale_torque: float,
+    rew_scale_action_rate: float,
     rew_scale_success_bonus: float,
     link1_length: float,
     link2_length: float,
     success_tip_height_ratio: float,
+    success_velocity_threshold: float,
     success_hold_time_s: float,
     step_dt: float,
     q1: torch.Tensor,
     q2: torch.Tensor,
+    dq1: torch.Tensor,
+    dq2: torch.Tensor,
     actions: torch.Tensor,
+    previous_actions: torch.Tensor,
     success_hold: torch.Tensor,
     success_awarded: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Reward high scores when the estimated pendulum tip is high."""
+) -> tuple[torch.Tensor, ...]:
+    """Reward high, still, and smooth behavior at the estimated pendulum tip."""
     tip_height = compute_tip_height(q1, q2, link1_length, link2_length)
+    tip_velocity = compute_tip_velocity(q1, q2, dq1, dq2, link1_length, link2_length)
     max_tip_height = link1_length + link2_length
     normalized_tip_height = torch.clamp((tip_height + max_tip_height) / (2.0 * max_tip_height), 0.0, 1.0)
+    joint_speed_sq = torch.square(dq1) + torch.square(dq2)
 
-    success_mask = tip_height >= max_tip_height * success_tip_height_ratio
+    success_mask = (
+        (tip_height >= max_tip_height * success_tip_height_ratio)
+        & (torch.abs(dq1) <= success_velocity_threshold)
+        & (torch.abs(dq2) <= success_velocity_threshold)
+    )
     success_hold = torch.where(success_mask, success_hold + step_dt, torch.zeros_like(success_hold))
     newly_successful = (success_hold >= success_hold_time_s) & (~success_awarded)
     success_awarded = success_awarded | newly_successful
 
-    rew_tip_height = rew_scale_tip_height * normalized_tip_height
+    rew_tip_height = rew_scale_tip_height * torch.square(normalized_tip_height)
+    rew_settle = rew_scale_settle * normalized_tip_height * torch.exp(-0.1 * joint_speed_sq)
+    rew_angular_velocity = rew_scale_angular_velocity * joint_speed_sq
+    rew_tip_velocity = rew_scale_tip_velocity * torch.square(tip_velocity)
     rew_torque = rew_scale_torque * torch.sum(torch.abs(actions), dim=-1)
+    rew_action_rate = rew_scale_action_rate * torch.sum(torch.square(actions - previous_actions), dim=-1)
     rew_success_bonus = rew_scale_success_bonus * newly_successful.float()
 
-    total_reward = rew_tip_height + rew_torque + rew_success_bonus
-    return total_reward, rew_tip_height, rew_torque, rew_success_bonus, success_hold, success_awarded
+    total_reward = (
+        rew_tip_height
+        + rew_settle
+        + rew_angular_velocity
+        + rew_tip_velocity
+        + rew_torque
+        + rew_action_rate
+        + rew_success_bonus
+    )
+    return (
+        total_reward,
+        rew_tip_height,
+        rew_settle,
+        rew_angular_velocity,
+        rew_tip_velocity,
+        rew_torque,
+        rew_action_rate,
+        rew_success_bonus,
+        success_hold,
+        success_awarded,
+    )
 
 
 def compute_tip_height(
@@ -227,3 +296,17 @@ def compute_tip_height(
     link1_height = -link1_length * torch.cos(q1)
     link2_height = -link2_length * torch.cos(q1 + q2)
     return link1_height + link2_height
+
+
+def compute_tip_velocity(
+    q1: torch.Tensor,
+    q2: torch.Tensor,
+    dq1: torch.Tensor,
+    dq2: torch.Tensor,
+    link1_length: float,
+    link2_length: float,
+) -> torch.Tensor:
+    """Estimate vertical tip velocity relative to the first joint."""
+    link1_velocity = link1_length * torch.sin(q1) * dq1
+    link2_velocity = link2_length * torch.sin(q1 + q2) * (dq1 + dq2)
+    return link1_velocity + link2_velocity

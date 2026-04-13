@@ -47,10 +47,15 @@ class DoublePendulumUprightEnvCfg(DirectRLEnvCfg):
     link1_length = 0.17
     link2_length = 0.17
     success_tip_height_ratio = math.cos(math.radians(1.0))
+    success_velocity_threshold = 0.25
     success_hold_time_s = 5.0
     max_joint_velocity = 50.0
     max_joint_angle = 10.0 * math.pi
 
-    rew_scale_tip_height = 4.0
+    rew_scale_tip_height = 5.0
+    rew_scale_settle = 2.0
+    rew_scale_angular_velocity = -0.02
+    rew_scale_tip_velocity = -0.01
     rew_scale_torque = -0.002
+    rew_scale_action_rate = -0.01
     rew_scale_success_bonus = 50.0

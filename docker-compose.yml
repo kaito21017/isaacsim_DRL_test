@@ -1,0 +1,37 @@
+services:
+  double-pendulum:
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-nvcr.io/nvidia/isaac-lab:2.3.0}
+        ISAACLAB_PATH: ${ISAACLAB_PATH:-/workspace/isaaclab}
+    image: ${IMAGE_NAME:-double-pendulum-isaaclab:latest}
+    network_mode: host
+    gpus: all
+    environment:
+      ACCEPT_EULA: "Y"
+      PRIVACY_CONSENT: "Y"
+      DISPLAY: ${DISPLAY:-}
+      WANDB_API_KEY: ${WANDB_API_KEY:-}
+      WANDB_MODE: ${WANDB_MODE:-}
+    volumes:
+      - ./logs:/workspace/isaacsim_DRL_test/logs:rw
+      - isaac-kit-cache:/isaac-sim/kit/cache:rw
+      - isaac-ov-cache:/root/.cache/ov:rw
+      - isaac-pip-cache:/root/.cache/pip:rw
+      - isaac-gl-cache:/root/.cache/nvidia/GLCache:rw
+      - isaac-compute-cache:/root/.nv/ComputeCache:rw
+      - isaac-logs:/root/.nvidia-omniverse/logs:rw
+      - isaac-data:/root/.local/share/ov/data:rw
+      - isaac-documents:/root/Documents:rw
+    command: ["-p", "scripts/train_upright_policy.py", "--headless"]
+
+volumes:
+  isaac-kit-cache:
+  isaac-ov-cache:
+  isaac-pip-cache:
+  isaac-gl-cache:
+  isaac-compute-cache:
+  isaac-logs:
+  isaac-data:
+  isaac-documents:
