@@ -224,6 +224,17 @@ def compute_tip_height(
     link2_length: float,
 ) -> torch.Tensor:
     """Estimate tip height relative to the first joint from planar joint angles."""
-    link1_height = -link1_length * torch.cos(q1)
-    link2_height = -link2_length * torch.cos(q1 + q2)
-    return link1_height + link2_height
+    _, tip_height = compute_tip_position(q1, q2, link1_length, link2_length)
+    return tip_height
+
+
+def compute_tip_position(
+    q1: torch.Tensor,
+    q2: torch.Tensor,
+    link1_length: float,
+    link2_length: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Estimate planar tip position relative to the first joint from joint angles."""
+    tip_horizontal = link1_length * torch.sin(q1) + link2_length * torch.sin(q1 + q2)
+    tip_height = -link1_length * torch.cos(q1) - link2_length * torch.cos(q1 + q2)
+    return tip_horizontal, tip_height

@@ -89,6 +89,43 @@
 ./isaacsim.sh -p scripts/train_upright_policy.py --headless --clone_in_fabric
 ```
 
+WandB に記録する場合:
+
+```bash
+./isaacsim.sh -p scripts/train_upright_policy.py --headless --track --wandb-project-name double_pendulum_upright
+```
+
+KainaIsaacLab 側の実行形式に合わせて、`--use_wandb` と `--wandb_mode online/offline/disabled` も使えます。
+
+ポリシー保存間隔を指定する場合:
+
+```bash
+./isaacsim.sh -p scripts/train_upright_policy.py --headless --save_frequency 10
+```
+
+`save_frequency` は PPO epoch/update 単位です。デフォルトは50です。
+保存名は `double_pendulum_upright_ep_<N>_rew_<R>.pth` です。
+学習中の最新ポリシーと終了時点のポリシーは、常に `last.pth` に上書き保存されます。
+
+rl-games が内部で作る `last_...pth` は最後に削除し、`last.pth` だけを残します。
+best用の `double_pendulum_upright.pth` も新しいrunでは保存しません。
+
+保存済みポリシーを10秒評価し、関節角度、推定先端位置、使用トルクのCSVとグラフを保存する場合:
+
+```bash
+./isaacsim.sh -p scripts/evaluate_upright_policy.py --headless --checkpoint logs/rl_games/double_pendulum_upright/<run>/nn/<checkpoint>.pth
+```
+
+`--checkpoint` を省略すると、`logs/rl_games/double_pendulum_upright/` 以下の最新 `.pth` を使います。
+評価結果は `logs/eval/double_pendulum_upright/` に保存されます。
+学習途中の全チェックポイントを順番に評価する場合:
+
+```bash
+./isaacsim.sh -p scripts/evaluate_upright_policy.py --headless --evaluate_all --checkpoint logs/rl_games/double_pendulum_upright/<run>
+```
+
+GUIで実時間再生したい場合は `--headless` を外して `--real_time` を付けます。
+
 軽く動作確認する場合:
 
 ```bash

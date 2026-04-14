@@ -1,0 +1,27 @@
+{"time":"2026-04-14T12:43:26.372305609+09:00","level":"INFO","msg":"stream: starting","core version":"0.22.2"}
+{"time":"2026-04-14T12:43:26.834064396+09:00","level":"INFO","msg":"stream: created new stream","id":"pnv6yhy8"}
+{"time":"2026-04-14T12:43:26.834090324+09:00","level":"INFO","msg":"handler: started","stream_id":"pnv6yhy8"}
+{"time":"2026-04-14T12:43:26.834124018+09:00","level":"INFO","msg":"stream: started","id":"pnv6yhy8"}
+{"time":"2026-04-14T12:43:26.834127404+09:00","level":"INFO","msg":"writer: started","stream_id":"pnv6yhy8"}
+{"time":"2026-04-14T12:43:26.834133756+09:00","level":"INFO","msg":"sender: started","stream_id":"pnv6yhy8"}
+{"time":"2026-04-14T12:43:37.811945687+09:00","level":"WARN","msg":"tensorboard: no root directory","error":"timed out after 10s"}
+{"time":"2026-04-14T12:43:37.812004197+09:00","level":"INFO","msg":"tensorboard: tracking new log directory","rootDir":{},"logDir":"LocalOrCloudPath(LocalPath=\"/home/kaito/isaacsim_DRL_test/logs/rl_games/double_pendulum_upright/2026-04-14_12-43-22/summaries\")","namespace":""}
+{"time":"2026-04-14T12:43:37.812239621+09:00","level":"INFO","msg":"tensorboard: saving file","fileLocation":"/home/kaito/isaacsim_DRL_test/logs/rl_games/double_pendulum_upright/2026-04-14_12-43-22/summaries/events.out.tfevents.1776138207.kaito-B850I","runPath":"logs/rl_games/double_pendulum_upright/2026-04-14_12-43-22/summaries/events.out.tfevents.1776138207.kaito-B850I"}
+{"time":"2026-04-14T12:43:37.812627952+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":150}
+{"time":"2026-04-14T12:43:37.813297645+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":108}
+{"time":"2026-04-14T12:43:37.814376478+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":447}
+{"time":"2026-04-14T12:43:37.814436421+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":1}
+{"time":"2026-04-14T12:43:37.815241468+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":933}
+{"time":"2026-04-14T12:43:37.81529004+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":2}
+{"time":"2026-04-14T12:43:37.815475459+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":1008}
+{"time":"2026-04-14T12:43:37.815532377+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":4}
+{"time":"2026-04-14T12:43:37.81558185+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":1045}
+{"time":"2026-04-14T12:43:37.815697468+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":22}
+{"time":"2026-04-14T12:43:37.815727344+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":1101}
+{"time":"2026-04-14T12:43:37.815768121+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":7}
+{"time":"2026-04-14T12:43:37.816080971+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":1174}
+{"time":"2026-04-14T12:43:37.816161352+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":10}
+{"time":"2026-04-14T12:43:37.816220323+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":1217}
+{"time":"2026-04-14T12:43:37.820925912+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":1796}
+{"time":"2026-04-14T12:43:42.821668522+09:00","level":"INFO","msg":"flowcontrol: backed up, offloading to disk","recordNumber":3096}
+{"time":"2026-04-14T12:43:43.104958932+09:00","level":"INFO","msg":"flowcontrol: unblocked","totalOffloaded":1424}

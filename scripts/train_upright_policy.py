@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import random
 import sys
 from datetime import datetime
+from distutils.util import strtobool
 from math import gcd
 from pathlib import Path
 
@@ -18,11 +20,51 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of parall
 parser.add_argument("--task", type=str, default="DoublePendulum-Upright-Direct-v0", help="Gymnasium task name.")
 parser.add_argument("--seed", type=int, default=None, help="Random seed. Use -1 for random.")
 parser.add_argument("--max_iterations", type=int, default=None, help="PPO training epochs.")
+parser.add_argument("--save_frequency", type=int, default=None, help="Checkpoint save interval in PPO epochs.")
 parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint path to resume from.")
 parser.add_argument("--sigma", type=float, default=None, help="Initial policy standard deviation override.")
 parser.add_argument("--video", action="store_true", default=False, help="Record training videos.")
 parser.add_argument("--video_length", type=int, default=300, help="Training video length in env steps.")
 parser.add_argument("--video_interval", type=int, default=2000, help="Training video interval in env steps.")
+parser.add_argument(
+    "--track",
+    type=lambda value: bool(strtobool(value)),
+    default=False,
+    nargs="?",
+    const=True,
+    help="Track this experiment with Weights & Biases.",
+)
+parser.add_argument("--use_wandb", action="store_true", dest="track", help="Alias for --track.")
+parser.add_argument(
+    "--wandb_project_name",
+    "--wandb-project-name",
+    type=str,
+    default=None,
+    help="Weights & Biases project name.",
+)
+parser.add_argument(
+    "--wandb_entity",
+    "--wandb-entity",
+    type=str,
+    default=None,
+    help="Weights & Biases entity or team name.",
+)
+parser.add_argument("--wandb_name", "--wandb-name", type=str, default=None, help="Weights & Biases run name.")
+parser.add_argument("--wandb_group", "--wandb-group", type=str, default=None, help="Weights & Biases group name.")
+parser.add_argument(
+    "--wandb_tags",
+    "--wandb-tags",
+    type=str,
+    default="",
+    help="Comma-separated Weights & Biases tags.",
+)
+parser.add_argument(
+    "--wandb_mode",
+    "--wandb-mode",
+    choices=["online", "offline", "disabled"],
+    default="online",
+    help="Weights & Biases mode.",
+)
 parser.add_argument(
     "--clone_in_fabric",
     action="store_true",
@@ -57,6 +99,51 @@ import envs  # noqa: F401
 from config.double_pendulum_upright_env_cfg import DoublePendulumUprightEnvCfg
 
 AGENT_CFG_PATH = PROJECT_ROOT / "agents" / "rl_games_upright_ppo_cfg.yaml"
+
+
+class PolicyCheckpointObserver(IsaacAlgoObserver):
+    """Save periodic policy files without rl-games' default 'last_' prefix."""
+
+    def __init__(self, save_frequency: int):
+        super().__init__()
+        self.save_frequency = max(int(save_frequency), 0)
+        self.algo = None
+
+    def after_print_stats(self, frame, epoch_num, total_time):
+        super().after_print_stats(frame, epoch_num, total_time)
+        if self.save_frequency <= 0 or self.algo.global_rank != 0:
+            return
+        if epoch_num % self.save_frequency != 0 or self.algo.game_rewards.current_size <= 0:
+            return
+
+        mean_rewards = self.algo.game_rewards.get_mean()
+        reward = float(mean_rewards[0].item())
+        checkpoint_name = f"{self.algo.config['name']}_ep_{epoch_num}_rew_{format_checkpoint_value(reward)}"
+        checkpoint_path = Path(self.algo.nn_dir) / checkpoint_name
+        self.algo.save(str(checkpoint_path))
+        self.save_latest_policy()
+        print(f"[INFO] saved policy checkpoint: {checkpoint_path}.pth")
+
+    def save_final_policy(self) -> None:
+        self.save_latest_policy()
+
+    def save_latest_policy(self) -> None:
+        if self.algo is None or self.algo.global_rank != 0:
+            return
+        checkpoint_path = Path(self.algo.nn_dir) / "last"
+        self.algo.save(str(checkpoint_path))
+        print(f"[INFO] saved latest policy: {checkpoint_path}.pth")
+
+    def remove_rl_games_last_prefix_files(self) -> None:
+        if self.algo is None or self.algo.global_rank != 0:
+            return
+        for checkpoint_path in Path(self.algo.nn_dir).glob("last_*.pth"):
+            checkpoint_path.unlink()
+            print(f"[INFO] removed rl-games prefixed checkpoint: {checkpoint_path}")
+
+
+def format_checkpoint_value(value: float) -> str:
+    return f"{value:.4f}".replace("-", "m").replace(".", "p")
 
 
 def resolve_seed(requested_seed: int | None, fallback_seed: int) -> int:
@@ -94,6 +181,17 @@ def apply_agent_overrides(agent_cfg: dict, seed: int, checkpoint: str | None) ->
         agent_cfg["params"]["load_path"] = checkpoint
     if args_cli.max_iterations is not None:
         agent_cfg["params"]["config"]["max_epochs"] = args_cli.max_iterations
+    if args_cli.save_frequency is not None:
+        agent_cfg["params"]["config"]["save_frequency"] = args_cli.save_frequency
+
+
+def configure_policy_saving(agent_cfg: dict) -> int:
+    config = agent_cfg["params"]["config"]
+    save_frequency = int(config.get("save_frequency", 0))
+    config["policy_save_frequency"] = save_frequency
+    config["save_frequency"] = 0
+    config["save_best_after"] = 10**12
+    return save_frequency
 
 
 def tune_ppo_batch_config(agent_cfg: dict, num_envs: int) -> None:
@@ -121,6 +219,44 @@ def dump_configs(log_root_path: Path, log_dir: str, env_cfg, agent_cfg: dict) ->
     dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
     dump_pickle(str(params_dir / "env.pkl"), env_cfg)
     dump_pickle(str(params_dir / "agent.pkl"), agent_cfg)
+
+
+def maybe_init_wandb(config_name: str, log_dir: str, env_cfg, agent_cfg: dict):
+    global_rank = int(os.getenv("RANK", "0"))
+    if not args_cli.track or args_cli.wandb_mode == "disabled" or global_rank != 0:
+        return None
+
+    import wandb
+
+    wandb_project = args_cli.wandb_project_name or config_name
+    wandb_name = args_cli.wandb_name or log_dir
+    wandb_tags = [tag.strip() for tag in args_cli.wandb_tags.split(",") if tag.strip()]
+    wandb_tags += [f"envs_{env_cfg.scene.num_envs}", "rl_games", "PPO"]
+
+    init_kwargs = {
+        "project": wandb_project,
+        "name": wandb_name,
+        "group": args_cli.wandb_group,
+        "tags": wandb_tags,
+        "mode": args_cli.wandb_mode,
+        "sync_tensorboard": True,
+        "monitor_gym": True,
+        "save_code": True,
+        "config": {
+            "seed": agent_cfg["params"]["seed"],
+            "task": args_cli.task,
+            "num_envs": env_cfg.scene.num_envs,
+            "max_iterations": agent_cfg["params"]["config"]["max_epochs"],
+            "agent_cfg": agent_cfg,
+            "env_cfg": env_cfg.to_dict(),
+        },
+    }
+    if args_cli.wandb_entity is not None:
+        init_kwargs["entity"] = args_cli.wandb_entity
+
+    run = wandb.init(**init_kwargs)
+    print(f"[INFO] wandb enabled: project={wandb_project}, name={wandb_name}, mode={args_cli.wandb_mode}")
+    return run
 
 
 def create_rl_games_env(task: str, env_cfg, agent_cfg: dict, log_root_path: Path, log_dir: str):
@@ -161,28 +297,40 @@ def main() -> None:
 
     env_cfg = load_env_cfg(seed)
     apply_agent_overrides(agent_cfg, seed, checkpoint)
+    policy_save_frequency = configure_policy_saving(agent_cfg)
     tune_ppo_batch_config(agent_cfg, env_cfg.scene.num_envs)
     log_root_path, log_dir = prepare_log_dir(agent_cfg)
     dump_configs(log_root_path, log_dir, env_cfg, agent_cfg)
+    config_name = agent_cfg["params"]["config"]["name"]
 
     print(f"[INFO] task={args_cli.task}")
     print(f"[INFO] num_envs={env_cfg.scene.num_envs}")
     print(f"[INFO] log_dir={(log_root_path / log_dir).resolve()}")
     print(f"[INFO] minibatch_size={agent_cfg['params']['config']['minibatch_size']}")
+    print(f"[INFO] policy_save_frequency={policy_save_frequency}")
 
     env = create_rl_games_env(args_cli.task, env_cfg, agent_cfg, log_root_path, log_dir)
     agent_cfg["params"]["config"]["num_actors"] = env.unwrapped.num_envs
 
-    runner = Runner(IsaacAlgoObserver())
+    checkpoint_observer = PolicyCheckpointObserver(policy_save_frequency)
+    runner = Runner(checkpoint_observer)
     runner.load(agent_cfg)
     runner.reset()
+
+    wandb_run = maybe_init_wandb(config_name, log_dir, env_cfg, agent_cfg)
 
     run_args = {"train": True, "play": False, "sigma": args_cli.sigma}
     if checkpoint is not None:
         run_args["checkpoint"] = checkpoint
         print(f"[INFO] resume checkpoint={checkpoint}")
-    runner.run(run_args)
-    env.close()
+    try:
+        runner.run(run_args)
+    finally:
+        checkpoint_observer.save_final_policy()
+        checkpoint_observer.remove_rl_games_last_prefix_files()
+        if wandb_run is not None:
+            wandb_run.finish()
+        env.close()
 
 
 if __name__ == "__main__":
