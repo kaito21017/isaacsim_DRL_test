@@ -20,7 +20,7 @@
 
 ## 前提
 
-- Isaac Sim `4.5.x`
+- Isaac Sim `5.0.0`
 - Isaac Lab `v2.2.x`
 
 ## 実行
@@ -133,3 +133,41 @@ GUIで実時間再生したい場合は `--headless` を外して `--real_time` 
 ```
 
 ログとチェックポイントは `logs/rl_games/double_pendulum_upright/` に保存されます。
+
+## Docker
+
+Isaac Sim 公式イメージをベースに Isaac Lab とこのリポジトリを入れた Docker イメージを作れます。
+デフォルトは `nvcr.io/nvidia/isaac-sim:5.0.0` と Isaac Lab `v2.2.1` です。
+
+ビルド:
+
+```bash
+docker build -f docker/Dockerfile -t isaacsim-drl-double-pendulum:latest .
+```
+
+Compose でビルドする場合:
+
+```bash
+cd docker
+cp .env.example .env
+docker compose build
+```
+
+学習:
+
+```bash
+cd docker
+docker compose run --rm double-pendulum \
+  ./isaacsim.sh -p scripts/train_upright_policy.py --headless --num_envs 100
+```
+
+評価:
+
+```bash
+cd docker
+docker compose run --rm double-pendulum \
+  ./isaacsim.sh -p scripts/evaluate_upright_policy.py --headless
+```
+
+詳細は `docker/README.md` を参照してください。
+完成イメージを第三者へ再配布する場合は、Isaac Sim ベースイメージを含むため NVIDIA 側のライセンス条件を確認してください。
