@@ -26,8 +26,7 @@ services:
       WANDB_API_KEY: ${WANDB_API_KEY:-}
       WANDB_MODE: ${WANDB_MODE:-online}
     volumes:
-      - ../logs:/workspace/isaacsim_DRL_test/logs
-      - ../wandb:/workspace/isaacsim_DRL_test/wandb
+      - ..:/workspace/isaacsim_DRL_test
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - isaac-kit-cache:/isaac-sim/kit/cache
       - ov-cache:/root/.cache/ov

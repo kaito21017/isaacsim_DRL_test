@@ -47,7 +47,10 @@ RUN git clone --depth 1 --branch "${ISAACLAB_REF}" "${ISAACLAB_REPO}" "${ISAACLA
 RUN chmod +x "${ISAACLAB_PATH}/isaaclab.sh" && \
     ln -sf "${ISAACSIM_ROOT_PATH}" "${ISAACLAB_PATH}/_isaac_sim"
 
-RUN "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install --no-cache-dir toml
+RUN "${ISAACLAB_PATH}/isaaclab.sh" -p -m ensurepip --upgrade && \
+    "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install --upgrade pip && \
+    "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install --no-cache-dir "setuptools<70.0.0" wheel toml && \
+    "${ISAACLAB_PATH}/isaaclab.sh" -p -m pip install --no-cache-dir --no-build-isolation flatdict==4.0.1
 
 RUN --mount=type=cache,target=/var/cache/apt \
     "${ISAACLAB_PATH}/isaaclab.sh" -p "${ISAACLAB_PATH}/tools/install_deps.py" apt "${ISAACLAB_PATH}/source" && \
