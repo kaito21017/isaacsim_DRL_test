@@ -1,3 +1,6 @@
+# =========================================================================
+# 強化学習アルゴリズム (PPO) のハイパーパラメータ設定
+# =========================================================================
 params:
   seed: 42
 
@@ -25,6 +28,8 @@ params:
           val: -0.7
         fixed_sigma: true
     mlp:
+      # AIの脳みそ（ニューラルネットワーク）の構造
+      # 例: 128個のニューロンを2層、最後は64個
       units: [128, 128, 64]
       activation: elu
       d2rl: false
@@ -50,20 +55,34 @@ params:
     reward_shaper:
       scale_value: 1.0
     normalize_advantage: true
+    
+    # 割引率: 未来の報酬をどれくらい重視するか（0.99 はかなり先の報酬まで考慮する設定）
     gamma: 0.99
     tau: 0.95
+    
+    # 学習率: AIの学習スピード（大きすぎると発散、小さすぎると遅い。基本は 3e-4 付近）
     learning_rate: 3e-4
     lr_schedule: adaptive
     kl_threshold: 0.008
     score_to_win: 100000
+    
+    # 学習の最大エポック数（この回数だけ学習ループを回す）
     max_epochs: 500
     save_best_after: 50
+    
+    # モデル（.pthファイル）を何エポックごとに保存するか
     save_frequency: 50
     grad_norm: 1.0
+    
+    # エントロピー係数: 高いとランダムな行動を取りやすくなる（探索重視）
     entropy_coef: 0.01
     truncate_grads: true
     e_clip: 0.2
+    
+    # 1回のエピソードで何ステップ進めてから学習するか
     horizon_length: 64
+    
+    # バッチサイズ: 1回の学習で使うデータ量（GPUメモリに余裕があれば大きくする）
     minibatch_size: 32768
     mini_epochs: 6
     critic_coef: 2

@@ -225,15 +225,20 @@ def create_output_dir(
     multiple_checkpoints: bool,
     batch_output_root: Path | None,
 ) -> Path:
+    # チェックポイントの親ディレクトリ名（ラン名）とファイル名を結合してわかりやすくする
+    # 例: 2026-04-23_03-13-01_last
+    run_dir_name = checkpoint_path.parent.parent.name if checkpoint_path.parent.name == "nn" else checkpoint_path.parent.name
+    policy_name = f"{run_dir_name}_{checkpoint_path.stem}"
+
     if args_cli.output_dir is not None:
         output_dir = Path(args_cli.output_dir)
         if multiple_checkpoints:
-            output_dir = output_dir / checkpoint_path.stem
+            output_dir = output_dir / policy_name
     elif batch_output_root is not None:
-        output_dir = batch_output_root / checkpoint_path.stem
+        output_dir = batch_output_root / policy_name
     else:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_dir = PROJECT_ROOT / "logs" / "eval" / config_name / f"{timestamp}_{checkpoint_path.stem}"
+        output_dir = PROJECT_ROOT / "logs" / "eval" / config_name / f"{timestamp}_{policy_name}"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir.resolve()
 
@@ -292,8 +297,9 @@ def collect_sample(env, time_s: float, reward, done) -> dict[str, float | bool]:
     tip_height_ratio = torch.clamp((tip_height + max_tip_height) / (2.0 * max_tip_height), 0.0, 1.0)
     torque = base_env.actions[0]
 
-    q1_rad = float(q1_wrapped.detach().cpu())
-    q2_rad = float(q2_wrapped.detach().cpu())
+    # 0〜360度（0〜2π）の範囲に変換して記録
+    q1_rad = float(q1.detach().cpu()) % (2 * math.pi)
+    q2_rad = float(q2.detach().cpu()) % (2 * math.pi)
     return {
         "time_s": time_s,
         "q1_rad": q1_rad,

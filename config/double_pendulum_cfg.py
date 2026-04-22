@@ -9,14 +9,20 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
 from isaaclab.sim.converters import UrdfConverterCfg
 
+import getpass
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_URDF_PATH = PROJECT_ROOT / "urdf" / "double_pendulum" / "double.urdf"
+USER_NAME = getpass.getuser()
+USER_USD_DIR = f"/tmp/IsaacLab_{USER_NAME}/usd_cache"
+
 JOINT1_NAME_EXPR = r"base_Revolute[-_]1"
 JOINT2_NAME_EXPR = r"link1_Revolute[-_]2"
 
 DOUBLE_PENDULUM_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
         asset_path=str(DEFAULT_URDF_PATH),
+        usd_dir=USER_USD_DIR,
         fix_base=True,
         joint_drive=UrdfConverterCfg.JointDriveCfg(
             drive_type="force",

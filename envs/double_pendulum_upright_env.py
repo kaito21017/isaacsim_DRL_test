@@ -67,31 +67,53 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
 
+    # =========================================================================
+    # 2. 行動 (Action) の定義・適用
+    # =========================================================================
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
+        # PPOから渡される行動 actions は [-1.0, 1.0] の範囲になります。
+        # ここで action_scale（最大トルク）を掛けて、実際のトルク値に変換します。
         self.actions = self.cfg.action_scale * torch.clamp(actions.clone(), -1.0, 1.0)
 
     def _apply_action(self) -> None:
+        # 変換したトルクを第1関節と第2関節に適用します。
         self.robot.set_joint_effort_target(self.actions[:, 0].unsqueeze(dim=1), joint_ids=self._joint1_dof_idx)
         self.robot.set_joint_effort_target(self.actions[:, 1].unsqueeze(dim=1), joint_ids=self._joint2_dof_idx)
 
+    # =========================================================================
+    # 1. 状態 (Observation / State) の定義
+    # =========================================================================
     def _get_observations(self) -> dict:
         self._update_joint_state_cache()
 
+        # 関節の角度 (q1, q2) と 角速度 (dq1, dq2) を取得
         q1 = torch.nan_to_num(self.joint_pos[:, self._joint1_dof_idx[0]], nan=0.0, posinf=0.0, neginf=0.0)
         q2 = torch.nan_to_num(self.joint_pos[:, self._joint2_dof_idx[0]], nan=0.0, posinf=0.0, neginf=0.0)
         dq1 = torch.nan_to_num(self.joint_vel[:, self._joint1_dof_idx[0]], nan=0.0, posinf=0.0, neginf=0.0)
         dq2 = torch.nan_to_num(self.joint_vel[:, self._joint2_dof_idx[0]], nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # 速度制限でクリッピング
         dq1 = torch.clamp(dq1, -self.cfg.max_joint_velocity, self.cfg.max_joint_velocity)
         dq2 = torch.clamp(dq2, -self.cfg.max_joint_velocity, self.cfg.max_joint_velocity)
 
+        # AIに渡す状態ベクトル（角度は -π〜π に収まるようにラップ）
+        # 状態を追加したい場合（例: 先端の座標など）はここに列を追加します。
         obs = torch.stack((wrap_to_pi(q1), wrap_to_pi(q2), dq1, dq2), dim=-1)
         return {"policy": obs}
 
+    # =========================================================================
+    # 3. 報酬 (Reward) の計算
+    # =========================================================================
     def _get_rewards(self) -> torch.Tensor:
         self._update_joint_state_cache()
 
         q1 = self.joint_pos[:, self._joint1_dof_idx[0]]
         q2 = self.joint_pos[:, self._joint2_dof_idx[0]]
+        
+        # 報酬関数の詳細は compute_rewards に分離されています。
+        # - 先端が高ければ高いほどプラス報酬
+        # - トルク(力)を使いすぎるとマイナス報酬
+        # - 5秒間真上をキープできたらボーナス報酬
         rewards = compute_rewards(
             self.cfg.rew_scale_tip_height,
             self.cfg.rew_scale_torque,
@@ -109,6 +131,7 @@ class DoublePendulumUprightEnv(DirectRLEnv):
         )
         total_reward, rew_tip_height, rew_torque, rew_success_bonus, success_hold, success_awarded = rewards
 
+        # ログ用の変数に保存
         self._episode_sums["tip_height"] += rew_tip_height
         self._episode_sums["torque"] += rew_torque
         self._episode_sums["success_bonus"] += rew_success_bonus
