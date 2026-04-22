@@ -12,6 +12,12 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Isaac Lab (setup.sh で自動クローン)
+IsaacLab/
+
+# ローカル環境設定
+.env
+
 # Local environments
 .venv/
 venv/
