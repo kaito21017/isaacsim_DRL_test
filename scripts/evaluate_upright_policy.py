@@ -13,6 +13,19 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# --livestream 3 のインターセプト (Native Stream)
+use_native_stream = False
+if "--livestream" in sys.argv:
+    idx = sys.argv.index("--livestream")
+    if idx + 1 < len(sys.argv) and sys.argv[idx + 1] == "3":
+        use_native_stream = True
+        sys.argv.pop(idx)  # remove --livestream
+        sys.argv.pop(idx)  # remove "3"
+        if "--headless" not in sys.argv:
+            sys.argv.append("--headless")
+        if "--enable_cameras" not in sys.argv:
+            sys.argv.append("--enable_cameras")
+
 from isaaclab.app import AppLauncher
 
 
@@ -40,6 +53,10 @@ sys.argv = [sys.argv[0]] + hydra_args
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
+
+if use_native_stream:
+    from isaacsim.core.utils.extensions import enable_extension
+    enable_extension("omni.kit.livestream.native")
 
 import gymnasium as gym
 import matplotlib
@@ -226,7 +243,6 @@ def create_output_dir(
     batch_output_root: Path | None,
 ) -> Path:
     # チェックポイントの親ディレクトリ名（ラン名）とファイル名を結合してわかりやすくする
-    # 例: 2026-04-23_03-13-01_last
     run_dir_name = checkpoint_path.parent.parent.name if checkpoint_path.parent.name == "nn" else checkpoint_path.parent.name
     policy_name = f"{run_dir_name}_{checkpoint_path.stem}"
 
